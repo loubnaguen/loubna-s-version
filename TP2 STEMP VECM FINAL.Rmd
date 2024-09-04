@@ -1,0 +1,202 @@
+---
+title: "TP2_VECM"
+author: "GUENOUNE Loubna"
+date: "2022-12-25"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Importing the data :
+
+```{r}
+library(readxl)
+data <- read_excel("C:/Users/Lenovo/Downloads/April_data_6series.xls")
+
+```
+
+#A.Creating ts objects :
+The EU time serie measures the era swap cryptocurrency change rate to us  dollars while,the GU measures the nasdaq stock index (in us dollar ).
+
+
+```{r}
+EU<- ts(log(data$es))
+GU<- ts(log(data$nq))
+```
+
+Plotting the time series in the same graph :
+
+```{r}
+ts.plot(EU, GU, gpars = list(col = c("black", "red")))
+```
+Though the difference is big between,we can see they have similar movement and it is even better shown when plotting the time series individually and comparing the graphs :
+
+```{r}
+plot(EU)
+plot(GU)
+
+```
+
+#Q.b : ERS unit root test
+
+The whole VECM stands on the non stationnarity of the primary data, so we preform an ERS Test on both of the time series :
+
+```{r}
+library(urca)
+EU.urers1 <- ur.ers(EU, type="P-test", model="trend")
+summary(EU.urers1)
+GU.urers2 <- ur.ers(GU, type="P-test", model="trend")
+summary(GU.urers2)
+```
+the test statistic is clearly larger than critical values at 1 and 5 percent level of confidence for both series, so we reject the null hypothesis of no unit root 
+
+we check for i(1):
+
+# reject Null of no unit root -> exist unit root -> difference
+
+we differentiate the time series and recheck for unit roots :
+
+
+```{r}
+dEU <- diff(EU)
+dGU <- diff(GU)
+dEU.urers1 <- ur.ers(dEU, type="P-test", model="trend")
+summary(dEU.urers1)
+dGU.urers2 <- ur.ers(dGU, type="P-test", model="trend")
+summary(dGU.urers2)
+par(mfrow=c(1,1))
+
+plot(dEU, type='l', main="EURO TO USD vs. GBP TO USD ", col="blue")
+lines(dGU, col="red")
+```
+
+The test statistic is smaller than the critical values at 1 5 and 10 percent , so we accept the null hypothesis of no unit root and both of the series are I(1).
+The graph of differentiated time series shows a near identicalness of the time series.
+
+#Q.c
+
+Binding the two series in one vector object :
+
+```{r}
+library(lmtest)
+library(sandwich)
+library(MASS)
+library(urca)
+library(vars)
+y <- cbind(EU,GU)
+colnames(y) <- c("EU","GU")
+y <- na.trim(y)
+```
+
+
+# determination of the number of lags to be included in cointegration test and in VEC model
+
+```{r}
+y.VAR.IC <- VARselect(y, type="const")
+nlags<-y.VAR.IC$selection["SC(n)"]
+nlags
+
+```
+
+the schwarz criterion shows that the ideal number of lags to be included is 2.
+
+```{r}
+y <- window(y, start=160, end=200)
+```
+
+#cointegration test
+
+we use the Johansen test since it's a bivariate model:
+
+```{r}
+library(urca)
+y.CA <- ca.jo(y, ecdet="const", type="trace", K=nlags, spec="transitory")
+summary(y.CA)
+y.CA <- ca.jo(y, ecdet="const", type="eigen", K=nlags, spec="transitory")
+summary(y.CA)
+lttest(y.CA, r=1)
+```
+
+The results of Johansen’s Trace test show that we can reject the null hypothesis of r=0 at a 10 percent level, Therefore we can conclude that ERA Swap and Nasdaq stock index are cointegrated.
+The results of maximum eigenvalue test also show that we can reject the null hypothesis. We can get same conclusion with above.
+On the other hand, the result of LR test which tests for the presence of the constant term in the cointegration relationship suggests case 2(restricted constant).
+
+# Q.d
+
+# estimatation of  unrestriced VEC model :
+```{r}
+y.VEC <- cajorls(y.CA, r=1)
+y.VEC
+```
+The cointegrating vector is estimated ββ = (1.000000,-0.4196125, -4.1470515). We have included a constant in the cointegrating relationship.
+Adjustment parameters are estimated as αα = (-0.6465,0.8205).
+
+#Q.E
+
+# to see t-statistics and p-values
+
+both α1α1 and α2α2 are statistically significant at 0.001 level. Adjustment
+parameters α1α1 and α2α2 determine the speed of return to long run equilibrium. For long run
+relationship to be stable, we need α1α1 < 0 or =0, α2α2 > 0 or =0 and at least one of them can not be equal to 0. In this result, α1α1 <0 and α2α2 <0, so it does not satisfy the condition for long run stable relationship.
+
+```{r}
+summary(y.VEC$rlm)
+```
+
+#Q.F
+
+# testing  for restricted adjustment parameters alpha :
+
+```{r}
+rest.alpha <- matrix(c(1,0), c(2,1))
+y.CA.ralpha <- alrtest(y.CA, A=rest.alpha, r=1)
+summary(y.CA.ralpha)
+```
+
+this code is for the cointegraction vector wich helps us to determinate le long term relation between the variables in the system.
+
+# Q.G
+# vec2varX supports restricted VEC models:
+```{r}
+library(vars)
+y.VAR <- vec2var(y.CA, r=1)
+y.VAR.rest <-vec2var(y.CA, r=1)
+y.VAR.rest
+```
+
+If α1α1 >0 and α2α2 <0 then EU would be growing and GU would be declining, taking the system even further away from the long run equilibrium. So we need to restrict one of them to
+be zero. if α2α2 =0 and α1α1 is not zero, then y2,ty2,t, GU is a pure random walk and all the adjustment occurs in y1,ty1,t,EU
+
+# forecast using VAR in levels
+
+```{r}
+y.VAR.fcst <- predict(y.VAR.rest, n.ahead=76, ci=0.95)
+par( mar=c(4,4,2,1), cex=0.75)
+plot(y.VAR.fcst)
+```
+
+The plot below shows the forecast using multistep scheme.
+
+
+#Q.I
+```{r}
+first.m <- 29285
+last.m <-29345
+dEU.p1 <- window(dEU, end=last.m)
+dGU.p2 <- window(dGU, start=first.m)
+library(forecast)
+par(mfrow=c(1,2))
+Acf(dEU.p1, type="correlation", lag=48, main="ACF for EU")
+Acf(dGU.p2, type="partial", lag=48, main="PACF for GU")
+arma26 <- Arima(dGU.p2, order=c(2, 0, 6))
+tsdiag(arma26, gof.lag=36)
+```
+
+
+ 
+ 
+ 
